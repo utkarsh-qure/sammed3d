@@ -43,7 +43,9 @@ class Sam3D(nn.Module):
         self.image_encoder = image_encoder
         self.prompt_encoder = prompt_encoder
         self.mask_decoder = mask_decoder
-        self.register_buffer("pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1), False)
+        self.register_buffer(
+            "pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1), False
+        )
         self.register_buffer("pixel_std", torch.Tensor(pixel_std).view(-1, 1, 1), False)
 
     @property
@@ -94,7 +96,9 @@ class Sam3D(nn.Module):
                 shape BxCxHxW, where H=W=256. Can be passed as mask input
                 to subsequent iterations of prediction.
         """
-        input_images = torch.stack([self.preprocess(x["image"]) for x in batched_input], dim=0)
+        input_images = torch.stack(
+            [self.preprocess(x["image"]) for x in batched_input], dim=0
+        )
         image_embeddings = self.image_encoder(input_images)
 
         outputs = []
@@ -153,12 +157,18 @@ class Sam3D(nn.Module):
         """
         masks = F.interpolate(
             masks,
-            (self.image_encoder.img_size, self.image_encoder.img_size, self.image_encoder.img_size),
+            (
+                self.image_encoder.img_size,
+                self.image_encoder.img_size,
+                self.image_encoder.img_size,
+            ),
             mode="bilinear",
             align_corners=False,
         )
         masks = masks[..., : input_size[0], : input_size[1], : input_size[2]]
-        masks = F.interpolate(masks, original_size, mode="bilinear", align_corners=False)
+        masks = F.interpolate(
+            masks, original_size, mode="bilinear", align_corners=False
+        )
         return masks
 
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
@@ -203,7 +213,9 @@ class Sam3D_mod(nn.Module):
         self.image_encoder = image_encoder
         self.prompt_encoder = prompt_encoder
         self.mask_decoder = mask_decoder
-        self.register_buffer("pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1), False)
+        self.register_buffer(
+            "pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1), False
+        )
         self.register_buffer("pixel_std", torch.Tensor(pixel_std).view(-1, 1, 1), False)
 
     @property
@@ -254,7 +266,9 @@ class Sam3D_mod(nn.Module):
                 shape BxCxHxW, where H=W=256. Can be passed as mask input
                 to subsequent iterations of prediction.
         """
-        input_images = torch.stack([self.preprocess(x["image"]) for x in batched_input], dim=0)
+        input_images = torch.stack(
+            [self.preprocess(x["image"]) for x in batched_input], dim=0
+        )
         image_embeddings = self.image_encoder(input_images)
 
         outputs = []
@@ -313,12 +327,18 @@ class Sam3D_mod(nn.Module):
         """
         masks = F.interpolate(
             masks,
-            (self.image_encoder.img_size//4, self.image_encoder.img_size, self.image_encoder.img_size),
+            (
+                self.image_encoder.img_size // 4,
+                self.image_encoder.img_size,
+                self.image_encoder.img_size,
+            ),
             mode="bilinear",
             align_corners=False,
         )
         masks = masks[..., : input_size[0], : input_size[1], : input_size[2]]
-        masks = F.interpolate(masks, original_size, mode="bilinear", align_corners=False)
+        masks = F.interpolate(
+            masks, original_size, mode="bilinear", align_corners=False
+        )
         return masks
 
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
@@ -328,9 +348,8 @@ class Sam3D_mod(nn.Module):
 
         # Pad
         d, h, w = x.shape[-3:]
-        padd = self.image_encoder.img_size//4 - d
+        padd = self.image_encoder.img_size // 4 - d
         padh = self.image_encoder.img_size - h
         padw = self.image_encoder.img_size - w
         x = F.pad(x, (0, padw, 0, padh, 0, padd))
         return x
-

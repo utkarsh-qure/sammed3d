@@ -75,3 +75,9 @@ For validation of MedSAM 3D volumetric data, you can refer to `medsam_infer.sh`
 <div align="center">
   <img src="assets/architecture.png">
 </div>
+
+## To-Do
+
+Code:
+- write Predictor class for 3D and use it for inference
+- write AutomaticMaskGenerator class for 3D and generate all nodule masks at once in inference

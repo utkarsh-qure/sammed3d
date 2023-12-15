@@ -8,7 +8,16 @@ import torch
 
 from functools import partial
 
-from .modeling import ImageEncoderViT3D, MaskDecoder3D, PromptEncoder3D, Sam3D, ImageEncoderViT3D_mod, Sam3D_mod, PromptEncoder3D_mod
+from .modeling import (
+    ImageEncoderViT3D,
+    MaskDecoder3D,
+    PromptEncoder3D,
+    Sam3D,
+    ImageEncoderViT3D_mod,
+    Sam3D_mod,
+    PromptEncoder3D_mod,
+)
+
 
 def build_sam3D_vit_h(checkpoint=None):
     return _build_sam3D(
@@ -102,7 +111,11 @@ def _build_sam3D(
         ),
         prompt_encoder=PromptEncoder3D(
             embed_dim=prompt_embed_dim,
-            image_embedding_size=(image_embedding_size, image_embedding_size, image_embedding_size),
+            image_embedding_size=(
+                image_embedding_size,
+                image_embedding_size,
+                image_embedding_size,
+            ),
             input_image_size=(image_size, image_size, image_size),
             mask_in_chans=16,
         ),
@@ -151,7 +164,11 @@ def _build_sam3D_ori(
         ),
         prompt_encoder=PromptEncoder3D(
             embed_dim=prompt_embed_dim,
-            image_embedding_size=(image_embedding_size, image_embedding_size, image_embedding_size),
+            image_embedding_size=(
+                image_embedding_size,
+                image_embedding_size,
+                image_embedding_size,
+            ),
             input_image_size=(image_size, image_size, image_size),
             mask_in_chans=16,
         ),
@@ -200,7 +217,11 @@ def _build_sam3D_96(
         ),
         prompt_encoder=PromptEncoder3D(
             embed_dim=prompt_embed_dim,
-            image_embedding_size=(image_embedding_size, image_embedding_size, image_embedding_size),
+            image_embedding_size=(
+                image_embedding_size,
+                image_embedding_size,
+                image_embedding_size,
+            ),
             input_image_size=(image_size, image_size, image_size),
             mask_in_chans=16,
         ),
@@ -230,9 +251,9 @@ def _build_sam3D_32_128_128(
 ):
     prompt_embed_dim = 384
     image_size = 128
-    print(30*"=")
+    print(30 * "=")
     print(f"loading sam3D for input size {(image_size//4, image_size, image_size)}")
-    print(30*"=")
+    print(30 * "=")
     vit_patch_size = 16
     image_embedding_size = image_size // vit_patch_size
     sam = Sam3D_mod(
@@ -252,8 +273,12 @@ def _build_sam3D_32_128_128(
         ),
         prompt_encoder=PromptEncoder3D_mod(
             embed_dim=prompt_embed_dim,
-            image_embedding_size=(image_embedding_size, image_embedding_size, image_embedding_size),
-            input_image_size=(image_size//4, image_size, image_size),
+            image_embedding_size=(
+                image_embedding_size,
+                image_embedding_size,
+                image_embedding_size,
+            ),
+            input_image_size=(image_size // 4, image_size, image_size),
             mask_in_chans=16,
         ),
         mask_decoder=MaskDecoder3D(
