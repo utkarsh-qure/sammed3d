@@ -1,4 +1,5 @@
 import os
+import json
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -90,39 +91,54 @@ def get_norm_img_and_combined_mask_for_scan(
 
 if __name__ == "__main__":
     MODE = "train"  # train or val
-    save_cache_root = "/cache/fast_data_nas8/utkarsh/sam_med3d_cache/nlst"
+    json_path = "/home/users/utkarsh.singh/qct/qct_data/studies/segm_train_data_distribution/segm_test_data.json"
 
-    logger.info(f"{RED}Generating {MODE} cache for SAM-Med3D training{RESET}")
+    num_readers = 2
+    dataset_name = "lidc"
+    save_cache_root = f"/cache/fast_data_nas8/utkarsh/segm_cache/sam/{dataset_name}"
+    csv_loc = f"/home/users/utkarsh.singh/qct/medsam/SAM-Med3D/data/csvs/{dataset_name}_majority_{num_readers}reader.csv"
+    # scans_root = f"/home/users/utkarsh.singh/qct/medsam/SAM-Med3D/data/pt/{dataset_name}.pt"
+    scans_root = f"/cache/fast_data_nas72/qct/data_governance/series_dicts/{dataset_name}.pt"
+    os.makedirs(save_cache_root, exist_ok=True)
+
+    logger.info(f"{RED}Generating {MODE} cache for SAM-Med3D training for {dataset_name}{RESET}")
 
     # lidc_folds_folder = "/home/users/utkarsh.singh/qct/qct_nodule_detection/studies/only_lidc/folds3"
-    nlst_folds_folder = "/cache/fast_data_nas8/cache_3d/qct_det_cache/nlst/folds"
+    # nlst_folds_folder = "/cache/fast_data_nas8/cache_3d/qct_det_cache/nlst/folds"
 
-    train_scans, val_scans = combine_scans(folder_path=nlst_folds_folder)
+    # train_scans, val_scans = combine_scans(folder_path=nlst_folds_folder)
 
-    scan_names = train_scans if MODE == "train" else val_scans  # train/val scans sid
+    # scan_names = train_scans if MODE == "train" else val_scans  # train/val scans sid
     # scan_names = [line.strip() for line in open('test_sid.txt', 'r')] # test scans sid
 
-    imgs_dir = (
-        f"{save_cache_root}/imagesTr"
-        if MODE == "train"
-        else f"{save_cache_root}/imagesVal"
-    )
-    labels_dir = (
-        f"{save_cache_root}/labelsTr"
-        if MODE == "train"
-        else f"{save_cache_root}/labelsVal"
-    )
-    # imgs_dir = f"{save_cache_root}/imagesTs"
-    # labels_dir = f"{save_cache_root}/labelsTs"
+    # imgs_dir = (
+    #     f"{save_cache_root}/imagesTr"
+    #     if MODE == "train"
+    #     else f"{save_cache_root}/imagesVal"
+    # )
+    # labels_dir = (
+    #     f"{save_cache_root}/labelsTr"
+    #     if MODE == "train"
+    #     else f"{save_cache_root}/labelsVal"
+    # )
+    
+    imgs_dir = f"{save_cache_root}/imagesTs"
+    labels_dir = f"{save_cache_root}/labelsTs"
 
     os.makedirs(imgs_dir, exist_ok=True)
     os.makedirs(labels_dir, exist_ok=True)
 
-    # ds = CTAnnotLoader(scans_root="/cache/fast_data_nas6/chestct/lidc_nii/scans_cct/", csv_loc="data/csvs/lidc_annot_3reader.csv") # for LIDC
-    ds = CTAnnotLoader(
-        scans_root="/cache/fast_data_nas6/chestct/nlst/lung_cancer_pos_nii/bucket_0_1_2/scans_cct/",
-        csv_loc="data/csvs/nlst_2reader_union.csv",
-    )  # for NLST
+    ds = CTAnnotLoader(scans_root=scans_root, csv_loc=csv_loc) # for LIDC; used this so far: "/cache/fast_data_nas6/chestct/lidc_nii/scans_cct", for NLST: "/cache/fast_data_nas6/chestct/nlst/lung_cancer_pos_nii/bucket_0_1_2/scans_cct"
+
+    with open(json_path) as f:
+        j = json.load(f)
+    nids_to_take = list(j[dataset_name].keys()) # for nlst 2 reader majority: len(nids_to_take) == 2260
+    
+    df = pd.read_csv(csv_loc) # for nlst 2 reader majority: df.shape == (1162, 3)
+    nodule_identifier_column = 'annot_id' if 'annot_id' in df.columns else 'Nodule_name'
+    df_ = df[df[nodule_identifier_column].isin(nids_to_take)]
+    nids_to_take_final = df_[nodule_identifier_column].values
+    scan_names = list(set([n.split('_')[0] for n in nids_to_take_final]))
 
     for scan_name in tqdm(scan_names):
         logger.info(f"{CYAN}Processing:{RESET} {scan_name}")
