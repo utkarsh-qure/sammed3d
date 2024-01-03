@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
 
-from common import LayerNorm3d, MLPBlock
+from .common import LayerNorm3d, MLPBlock
 
 
 # Only difference wrt ImageEncoderViT is that 3D submodules are called instead of their 2D counterparts

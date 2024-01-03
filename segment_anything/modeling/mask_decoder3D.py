@@ -8,8 +8,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from typing import List, Tuple, Type
-from common import LayerNorm3d
-from transformer3D import TwoWayTransformer3D
+from .common import LayerNorm3d
+from .transformer3D import TwoWayTransformer3D
 
 
 class MaskDecoder3D(nn.Module):

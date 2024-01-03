@@ -10,7 +10,7 @@ from torch import nn
 
 from typing import Any, Optional, Tuple, Type
 
-from common import LayerNorm3d
+from .common import LayerNorm3d #noqa
 
 
 class PromptEncoder3D(nn.Module):
