@@ -22,8 +22,8 @@ from utils.data_paths import img_datas
 # %% set up parser
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--task_name", type=str, default="lidc_finetune"
-)  # last: lidc_finetune_resampled_turbo
+    "--task_name", type=str, default="lidc_majority_2reader_ft_turbo"
+)  # last: lidc_majority_2reader_ft_turbo
 parser.add_argument("--click_type", type=str, default="random")
 parser.add_argument("--multi_click", action="store_true", default=False)
 parser.add_argument("--model_type", type=str, default="vit_b_ori")
@@ -71,7 +71,7 @@ def get_dataloaders(args):
         transform=tio.Compose(
             [
                 tio.ToCanonical(),
-                tio.Resample((1, 1, 1)),
+                # tio.Resample((1, 1, 1)),
                 tio.CropOrPad(
                     mask_name="label",
                     target_shape=(args.img_size, args.img_size, args.img_size),
@@ -100,7 +100,7 @@ def get_dataloaders_32(args):
         transform=tio.Compose(
             [
                 tio.ToCanonical(),
-                tio.Resample((1, 1, 1)),
+                # tio.Resample((1, 1, 1)),
                 tio.CropOrPad(
                     mask_name="label",
                     target_shape=(args.img_size // 4, args.img_size, args.img_size),
@@ -139,7 +139,6 @@ class BaseTrainer:
         self.set_optimizer()
         self.set_lr_scheduler()
         init_ckpt_path = ""
-        # breakpoint()
         if not train_from_scratch:
             init_ckpt_path = os.path.join(
                 self.args.work_dir, self.args.task_name, "sam_model_latest.pth"
