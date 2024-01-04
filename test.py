@@ -3,21 +3,17 @@ import json
 import pickle
 import argparse
 import numpy as np
-from glob import glob
 from tqdm import tqdm
 import SimpleITK as sitk
 from collections import OrderedDict
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-import torchio as tio
 
-from utils.click_method import get_next_click3D_torch_2
-from utils.data_loader import Dataset_Union_ALL
+from build import build_model, get_test_dataloader
 from utils.metrics import compute_dice, compute_iou
+from utils.click_method import get_next_click3D_torch_2
 
-from segment_anything.build_sam3D import sam_model_registry3D
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -66,6 +62,19 @@ click_methods = {
 }
 
 
+def get_points(prev_masks, gt3D, click_idx, click_method, device):
+    if click_idx > 1:
+        click_method = "random" # first mask has to be from gt
+    batch_points, batch_labels = click_methods[click_method](
+        prev_masks.to(device), gt3D.to(device)
+    )
+
+    points_co = torch.cat(batch_points, dim=0).to(device)
+    points_la = torch.cat(batch_labels, dim=0).to(device)
+
+    return points_co, points_la
+
+
 def finetune_model_predict3D(
     img3D,
     gt3D,
@@ -79,11 +88,10 @@ def finetune_model_predict3D(
     # img3D = img3D.unsqueeze(dim=1)
     click_points = []
     click_labels = []
-
     pred_list = []
-
     iou_list = []
     dice_list = []
+    
     if prev_masks is None:
         prev_masks = torch.zeros_like(gt3D).to(device)
     low_res_masks = F.interpolate(
@@ -95,22 +103,11 @@ def finetune_model_predict3D(
         image_embedding = sam_model_tune.image_encoder(
             img3D.to(device)
         )  # (1, 384, 16, 16, 16)
-    for num_click in range(num_clicks):
+    for click_idx in range(num_clicks):
         with torch.no_grad():
-            if num_click > 1:
-                click_method = "random"
-            batch_points, batch_labels = click_methods[click_method](
-                prev_masks.to(device), gt3D.to(device)
-            )
-
-            points_co = torch.cat(batch_points, dim=0).to(device)
-            points_la = torch.cat(batch_labels, dim=0).to(device)
-
-            click_points.append(points_co)
-            click_labels.append(points_la)
-
-            points_input = points_co
-            labels_input = points_la
+            points_input, labels_input = get_points(prev_masks=prev_masks, gt3D=gt3D, click_idx=click_idx, click_method=click_method, device=device)
+            click_points.append(points_input)
+            click_labels.append(labels_input)
 
             sparse_embeddings, dense_embeddings = sam_model_tune.prompt_encoder(
                 points=[points_input, labels_input],
@@ -155,54 +152,19 @@ def finetune_model_predict3D(
 
 
 if __name__ == "__main__":
-    # all_dataset_paths = glob(args.test_data_path)
-    all_dataset_paths = glob(os.path.join(args.test_data_path, "*"))
-    # all_dataset_paths = glob(os.path.join(args.test_data_path, "*", "*"))
-
-    all_dataset_paths = list(filter(os.path.isdir, all_dataset_paths))
-    print("get", len(all_dataset_paths), "datasets")
-
-    infer_transform = [
-        tio.ToCanonical(),
-        tio.Resample((1, 1, 1)),
-        tio.CropOrPad(
-            mask_name="label",
-            target_shape=(args.crop_size, args.crop_size, args.crop_size),
-        ),
-    ]
-
-    test_dataset = Dataset_Union_ALL(
-        paths=all_dataset_paths,
-        mode="Ts",
-        data_type=args.data_type,
-        transform=tio.Compose(infer_transform),
-        threshold=0,
-        split_num=args.split_num,
-        split_idx=args.split_idx,
-        pcc=False,
-    )
-
-    test_dataloader = DataLoader(
-        dataset=test_dataset, sampler=None, batch_size=1, shuffle=True
-    )
-    vis_root = os.path.join(os.path.dirname(__file__), args.vis_path)
-
-    checkpoint_path = args.checkpoint_path
-
     device = args.device
     print("device:", device)
-
-    sam_model_tune = sam_model_registry3D[args.model_type](checkpoint=None).to(device)
-    if checkpoint_path is not None:
-        model_dict = torch.load(checkpoint_path, map_location=device)
-        state_dict = model_dict["model_state_dict"]
-        sam_model_tune.load_state_dict(state_dict)
 
     all_iou_list = []
     all_dice_list = []
 
     out_dice = dict()
     out_dice_all = OrderedDict()
+
+    vis_root = os.path.join(os.path.dirname(__file__), args.vis_path)
+
+    test_dataloader = get_test_dataloader(args)
+    sam_model_tune = build_model(args)
 
     for batch_data in tqdm(test_dataloader, leave=False, colour='green'):
         image3D, gt3D, img_name = batch_data

@@ -361,9 +361,9 @@ def main():
     parser.add_argument("--click_type", type=str, default="random")
     parser.add_argument("--multi_click", action="store_true", default=False)
     parser.add_argument("--model_type", type=str, default="vit_b_ori")
-    parser.add_argument(
-        "--checkpoint", type=str, default="./work_dir/SAM/sam_vit_b.pth"
-    )
+    # parser.add_argument(
+    #     "--checkpoint", type=str, default="./work_dir/SAM/sam_vit_b.pth"
+    # )
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument(
         "--work_dir",
