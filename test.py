@@ -24,16 +24,16 @@ parser.add_argument(
     "-tdp",
     "--test_data_path",
     type=str,
-    default="/cache/fast_data_nas8/utkarsh/sam_med3d_cache",
+    default="/cache/fast_data_nas8/utkarsh/segm_cache/sam",
 )
 parser.add_argument(
-    "-vp", "--vis_path", type=str, default="./results/lidc_finetune_resampled_turbo"
+    "-vp", "--vis_path", type=str, default="./results/dsb_union_2reader_ft_turbo"
 )  # ./results/medsam2d for medsam results
 parser.add_argument(
     "-cp",
     "--checkpoint_path",
     type=str,
-    default="./work_dir/lidc_finetune_resampled_turbo/sam_model_dice_best.pth",
+    default="/cache/fast_data_nas8/utkarsh/training/sammed3d_workdir/dsb_union_2reader_ft_turbo/sam_model_dice_best.pth",
 )  # ./ckpt/medsam2d_point_prompt.pth for medsam
 
 parser.add_argument("--image_size", type=int, default=256)  # 1024 for medsam
@@ -204,9 +204,9 @@ if __name__ == "__main__":
     out_dice = dict()
     out_dice_all = OrderedDict()
 
-    for batch_data in tqdm(test_dataloader, leave=False):
+    for batch_data in tqdm(test_dataloader, leave=False, colour='green'):
         image3D, gt3D, img_name = batch_data
-        dataset_name = img_name[0].split('/')[5]
+        dataset_name = img_name[0].split('/')[-3]
         print(30*"-")
         print(f"Processing {img_name}")
         dataset = f"{dataset_name}_test" if args.data_type == "Ts" else f"{dataset_name}_val"
@@ -266,13 +266,6 @@ if __name__ == "__main__":
             points = [point_.cpu().numpy() for point_ in points]
             labels = [label_.cpu().numpy() for label_ in labels]
             pt_info = dict(points=points, labels=labels)
-            print(
-                "save to",
-                os.path.join(
-                    save_root,
-                    os.path.basename(img_name[0]).replace(".nii.gz", "_pred.nii.gz"),
-                ),
-            )
             pt_path = os.path.join(
                 save_root, os.path.basename(img_name[0]).replace(".nii.gz", "_pt.pkl")
             )
@@ -292,15 +285,17 @@ if __name__ == "__main__":
         per_iou = max(iou_list)
         all_iou_list.append(per_iou)
         all_dice_list.append(max(dice_list))
-        print(dice_list)
+        print(f"Dice Score after each of the {args.num_clicks} clicks: {dice_list}")
         out_dice[img_name] = max(dice_list)
         cur_dice_dict = OrderedDict()
         for i, dice in enumerate(dice_list):
             cur_dice_dict[f"{i}"] = dice
         out_dice_all[img_name[0]] = cur_dice_dict
 
-    print("Mean IoU : ", sum(all_iou_list) / len(all_iou_list))
+    print("Mean IoU: ", sum(all_iou_list) / len(all_iou_list))
     print("Mean Dice: ", sum(all_dice_list) / len(all_dice_list))
+
+    print(f"Preds saved to: {save_root}")
 
     final_dice_dict = OrderedDict()
     for k, v in out_dice_all.items():
@@ -314,7 +309,7 @@ if __name__ == "__main__":
     if args.split_num > 1:
         save_name = save_name.replace(".py", f"_s{args.split_num}i{args.split_idx}.py")
 
-    print("Save to", save_name)
+    print(f"Dice Scores saved to: {save_name}")
     with open(save_name, "w") as f:
         f.writelines(f"# mean dice: \t{np.mean(all_dice_list)}\n")
         f.writelines("dice_Ts = {")
