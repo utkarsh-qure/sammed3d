@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from monai.losses import DiceCELoss
 
 from utils.data_paths import img_datas
-from utils.build import get_dataloaders, build_model
+from build import get_dataloaders, build_model
 from utils.click_method import get_next_click3D_torch_2
 
 logger = logging.getLogger(__name__)
