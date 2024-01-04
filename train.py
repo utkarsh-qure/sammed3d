@@ -8,123 +8,22 @@ import matplotlib.pyplot as plt
 
 import torch
 import torch.nn.functional as F
-import torchio as tio
-
-from segment_anything.build_sam3D import sam_model_registry3D
 
 from monai.losses import DiceCELoss
 
-from utils.click_method import get_next_click3D_torch_2
-from utils.data_loader import Dataset_Union_ALL, Union_Dataloader
 from utils.data_paths import img_datas
-
-
-# %% set up parser
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--task_name", type=str, default="lidc_majority_2reader_ft_turbo"
-)  # last: lidc_majority_2reader_ft_turbo
-parser.add_argument("--click_type", type=str, default="random")
-parser.add_argument("--multi_click", action="store_true", default=False)
-parser.add_argument("--model_type", type=str, default="vit_b_ori")
-parser.add_argument("--checkpoint", type=str, default="./work_dir/SAM/sam_vit_b.pth")
-parser.add_argument("--device", type=str, default="cuda")
-parser.add_argument("--work_dir", type=str, default="./work_dir")
-
-# train
-parser.add_argument("--num_workers", type=int, default=16)
-parser.add_argument("--resume", action="store_true", default=False)
-
-# lr_scheduler
-parser.add_argument("--lr_scheduler", type=str, default="multisteplr")
-parser.add_argument("--step_size", type=list, default=[120, 180])
-parser.add_argument("--gamma", type=float, default=0.1)
-parser.add_argument("--num_epochs", type=int, default=200)
-parser.add_argument("--img_size", type=int, default=128)
-parser.add_argument("--batch_size", type=int, default=4)
-parser.add_argument("--accumulation_steps", type=int, default=20)
-parser.add_argument("--lr", type=float, default=8e-4)
-parser.add_argument("--weight_decay", type=float, default=0.1)
-
-args = parser.parse_args()
-
-args.device = device = "cuda:0"
-print(f"on device: {device}")
+from utils.build import get_dataloaders, build_model
+from utils.click_method import get_next_click3D_torch_2
 
 logger = logging.getLogger(__name__)
-LOG_OUT_DIR = os.path.join(args.work_dir, args.task_name)
+
 click_methods = {
     "random": get_next_click3D_torch_2,
 }
-MODEL_SAVE_PATH = os.path.join(args.work_dir, args.task_name)
-os.makedirs(MODEL_SAVE_PATH, exist_ok=True)
-
-
-def build_model(args):
-    sam_model = sam_model_registry3D[args.model_type](checkpoint=None).to(device)
-    return sam_model
-
-
-def get_dataloaders(args):
-    train_dataset = Dataset_Union_ALL(
-        paths=img_datas,
-        transform=tio.Compose(
-            [
-                tio.ToCanonical(),
-                # tio.Resample((1, 1, 1)),
-                tio.CropOrPad(
-                    mask_name="label",
-                    target_shape=(args.img_size, args.img_size, args.img_size),
-                ),  # crop only object region
-                tio.RandomFlip(axes=(0, 1, 2)),
-            ]
-        ),
-        threshold=100,
-    )
-
-    # normal pytorch DataLoader with prefetch_generator:BackgroundGenerator
-    train_dataloader = Union_Dataloader(
-        dataset=train_dataset,
-        sampler=None,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.num_workers,
-        pin_memory=True,
-    )
-    return train_dataloader
-
-
-def get_dataloaders_32(args):
-    train_dataset = Dataset_Union_ALL(
-        paths=img_datas,
-        transform=tio.Compose(
-            [
-                tio.ToCanonical(),
-                # tio.Resample((1, 1, 1)),
-                tio.CropOrPad(
-                    mask_name="label",
-                    target_shape=(args.img_size // 4, args.img_size, args.img_size),
-                ),  # crop only object region
-                tio.RandomFlip(axes=(0, 1, 2)),
-            ]
-        ),
-        threshold=100,
-    )
-
-    # normal pytorch DataLoader with prefetch_generator:BackgroundGenerator
-    train_dataloader = Union_Dataloader(
-        dataset=train_dataset,
-        sampler=None,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.num_workers,
-        pin_memory=True,
-    )
-    return train_dataloader
 
 
 class BaseTrainer:
-    def __init__(self, model, dataloaders, args, train_from_scratch: bool = False):
+    def __init__(self, model, dataloaders, args):
         self.model = model
         self.dataloaders = dataloaders
         self.args = args
@@ -139,7 +38,7 @@ class BaseTrainer:
         self.set_optimizer()
         self.set_lr_scheduler()
         init_ckpt_path = ""
-        if not train_from_scratch:
+        if not args.train_from_scratch:
             init_ckpt_path = os.path.join(
                 self.args.work_dir, self.args.task_name, "sam_model_latest.pth"
             )
@@ -227,7 +126,7 @@ class BaseTrainer:
                 "args": self.args,
                 "used_datas": img_datas,
             },
-            os.path.join(MODEL_SAVE_PATH, f"sam_model_{describe}.pth"),
+            os.path.join(self.args.model_save_path, f"sam_model_{describe}.pth"),
         )
 
     def batch_forward(
@@ -239,7 +138,7 @@ class BaseTrainer:
             masks=low_res_masks,
         )
         low_res_masks, iou_predictions = sam_model.mask_decoder(
-            image_embeddings=image_embedding.to(device),  # (B, 256, 64, 64)
+            image_embeddings=image_embedding.to(self.args.device),  # (B, 256, 64, 64)
             image_pe=sam_model.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
             sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
             dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
@@ -255,14 +154,14 @@ class BaseTrainer:
             prev_masks, gt3D
         )
 
-        points_co = torch.cat(batch_points, dim=0).to(device)
-        points_la = torch.cat(batch_labels, dim=0).to(device)
+        points_co = torch.cat(batch_points, dim=0).to(self.args.device)
+        points_la = torch.cat(batch_labels, dim=0).to(self.args.device)
 
         self.click_points.append(points_co)
         self.click_labels.append(points_la)
 
-        points_multi = torch.cat(self.click_points, dim=1).to(device)
-        labels_multi = torch.cat(self.click_labels, dim=1).to(device)
+        points_multi = torch.cat(self.click_points, dim=1).to(self.args.device)
+        labels_multi = torch.cat(self.click_labels, dim=1).to(self.args.device)
 
         if self.args.multi_click:
             points_input = points_multi
@@ -279,7 +178,11 @@ class BaseTrainer:
 
         low_res_masks = F.interpolate(
             prev_masks.float(),
-            size=(args.img_size // 4, args.img_size // 4, args.img_size // 4),
+            size=(
+                self.args.img_size // 4,
+                self.args.img_size // 4,
+                self.args.img_size // 4,
+            ),
         )
 
         random_insert = np.random.randint(2, 9)
@@ -338,8 +241,8 @@ class BaseTrainer:
 
         tbar = tqdm(self.dataloaders)
         for step, (image3D, gt3D) in enumerate(tbar):
-            image3D = image3D.to(device)
-            gt3D = gt3D.to(device).type(torch.long)
+            image3D = image3D.to(self.args.device)
+            gt3D = gt3D.to(self.args.device).type(torch.long)
 
             image_embedding = sam_model.image_encoder(image3D)
 
@@ -394,7 +297,7 @@ class BaseTrainer:
         plt.title(description)
         plt.xlabel("Epoch")
         plt.ylabel(f"{save_name}")
-        plt.savefig(os.path.join(MODEL_SAVE_PATH, f"{save_name}.png"))
+        plt.savefig(os.path.join(self.args.model_save_path, f"{save_name}.png"))
         plt.close()
 
     def train(self):
@@ -451,15 +354,57 @@ class BaseTrainer:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--task_name", type=str, default="dsb_union_2reader_ft_turbo"
+    )  # last: dsb_union_2reader_ft_turbo
+    parser.add_argument("--click_type", type=str, default="random")
+    parser.add_argument("--multi_click", action="store_true", default=False)
+    parser.add_argument("--model_type", type=str, default="vit_b_ori")
+    parser.add_argument(
+        "--checkpoint", type=str, default="./work_dir/SAM/sam_vit_b.pth"
+    )
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument(
+        "--work_dir",
+        type=str,
+        default="/cache/fast_data_nas8/utkarsh/training/sammed3d_workdir",
+    )
+
+    # train
+    parser.add_argument("--num_workers", type=int, default=16)
+    parser.add_argument("--resume", action="store_true", default=False)
+
+    # lr_scheduler
+    parser.add_argument("--lr_scheduler", type=str, default="multisteplr")
+    parser.add_argument("--step_size", type=list, default=[120, 180])
+    parser.add_argument("--gamma", type=float, default=0.1)
+    parser.add_argument("--num_epochs", type=int, default=200)
+    parser.add_argument("--img_size", type=int, default=128)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--accumulation_steps", type=int, default=20)
+    parser.add_argument("--lr", type=float, default=8e-4)
+    parser.add_argument("--weight_decay", type=float, default=0.1)
+
+    args = parser.parse_args()
+
+    args.device = "cuda:0"
+    print(f"on device: {args.device}")
+
+    args.model_save_path = os.path.join(args.work_dir, args.task_name)
+    os.makedirs(args.model_save_path, exist_ok=True)
+
+    args.train_from_scratch = (
+        False  # train_from_scratch is True for any img not of the shape (128, 128, 128)
+    )
+
     random.seed(2023)
     np.random.seed(2023)
     torch.manual_seed(2023)
     dataloaders = get_dataloaders(args)
     # dataloaders = get_dataloaders_32(args)
     model = build_model(args)
-    trainer = BaseTrainer(
-        model, dataloaders, args, train_from_scratch=False
-    )  # train_from_scratch is True for any img not of the shape (128, 128, 128)
+    trainer = BaseTrainer(model, dataloaders, args)
     trainer.train()
 
 
