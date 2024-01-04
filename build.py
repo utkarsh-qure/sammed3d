@@ -1,3 +1,8 @@
+import os
+from glob import glob
+import torch
+from torch.utils.data import DataLoader
+
 import torchio as tio
 
 from segment_anything.build_sam3D import sam_model_registry3D
@@ -8,6 +13,10 @@ from utils.data_loader import Dataset_Union_ALL, Union_Dataloader
 
 def build_model(args):
     sam_model = sam_model_registry3D[args.model_type](checkpoint=None).to(args.device)
+    if args.checkpoint_path is not None:
+        model_dict = torch.load(args.checkpoint_path, map_location=args.device)
+        state_dict = model_dict["model_state_dict"]
+        sam_model.load_state_dict(state_dict)
     return sam_model
 
 
@@ -67,3 +76,38 @@ def get_dataloaders_32(args):
         pin_memory=True,
     )
     return train_dataloader
+
+
+def get_test_dataloader(args):
+    # all_dataset_paths = glob(args.test_data_path)
+    all_dataset_paths = glob(os.path.join(args.test_data_path, "*"))
+    # all_dataset_paths = glob(os.path.join(args.test_data_path, "*", "*"))
+
+    all_dataset_paths = list(filter(os.path.isdir, all_dataset_paths))
+    print("get", len(all_dataset_paths), "datasets")
+
+    infer_transform = [
+        tio.ToCanonical(),
+        tio.Resample((1, 1, 1)),
+        tio.CropOrPad(
+            mask_name="label",
+            target_shape=(args.crop_size, args.crop_size, args.crop_size),
+        ),
+    ]
+
+    test_dataset = Dataset_Union_ALL(
+        paths=all_dataset_paths,
+        mode="Ts",
+        data_type=args.data_type,
+        transform=tio.Compose(infer_transform),
+        threshold=0,
+        split_num=args.split_num,
+        split_idx=args.split_idx,
+        pcc=False,
+    )
+
+    test_dataloader = DataLoader(
+        dataset=test_dataset, sampler=None, batch_size=1, shuffle=True
+    )
+
+    return test_dataloader
