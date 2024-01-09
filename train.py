@@ -45,8 +45,8 @@ class BaseTrainer:
             init_ckpt_path = (
                 init_ckpt_path
                 if os.path.exists(init_ckpt_path)
-                else "/home/users/utkarsh.singh/qct/medsam/SAM-Med3D/ckpt/sam_med3d_turbo.pth"
-            )  # original: "/home/users/utkarsh.singh/qct/medsam/SAM-Med3D/ckpt/sam_med3d.pth"
+                else "./ckpt/sam_med3d_turbo.pth"
+            )  # original: "./ckpt/sam_med3d.pth"
         self.init_checkpoint(ckp_path=init_ckpt_path)
 
     def set_loss_fn(self):
@@ -361,14 +361,13 @@ def main():
     parser.add_argument("--click_type", type=str, default="random")
     parser.add_argument("--multi_click", action="store_true", default=False)
     parser.add_argument("--model_type", type=str, default="vit_b_ori")
-    # parser.add_argument(
-    #     "--checkpoint", type=str, default="./work_dir/SAM/sam_vit_b.pth"
-    # )
+    parser.add_argument("--checkpoint_path", type=str, default=None)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument(
         "--work_dir",
         type=str,
-        default="/cache/fast_data_nas8/utkarsh/training/sammed3d_workdir",
+        default="/cache/fast_data_nas8/utkarsh/training/sammed3d_workdir", # qure servers
+        # default="/fast_data_2d_1/utkarsh/training/sammed3d_workdir", # e2e
     )
 
     # train
