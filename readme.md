@@ -2,6 +2,12 @@
 
 3D version of SAM for CTs, based off: [SAM-Med3D](https://github.com/uni-medical/SAM-Med3D)
 
+## Installation
+1. Create a virtual environment `conda create -n medsam python=3.10 -y` and activate it `conda activate medsam`
+2. Install [Pytorch 2.0](https://pytorch.org/get-started/locally/)
+3. Clone this repository: `git clone git@github.com:utkarsh-qure/sammed3d.git`
+4. Import requirements from yml file: `conda env update -n medsam --file env.yml`
+
 ## 🔨 Usage
 ### Training / Fine-tuning
 (we recommend fine-tuning with SAM-Med3D pre-trained weights from [link](https://github.com/uni-medical/SAM-Med3D#-checkpoint))
