@@ -101,7 +101,7 @@ class PromptEncoder3D(nn.Module):
     def _embed_boxes(self, boxes: torch.Tensor) -> torch.Tensor:
         """Embeds box prompts."""
         boxes = boxes + 0.5  # Shift to center of pixel
-        coords = boxes.reshape(-1, 2, 2)
+        coords = boxes.reshape(-1, 2, 3)
         corner_embedding = self.pe_layer.forward_with_coords(
             coords, self.input_image_size
         )
