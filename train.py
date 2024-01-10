@@ -1,6 +1,6 @@
 import os
 import random
-import logging
+from loguru import logger
 import argparse
 import numpy as np
 from tqdm import tqdm
@@ -15,7 +15,6 @@ from utils.data_paths import img_datas
 from build import get_dataloaders, build_model
 from utils.click_method import get_next_click3D_torch_2
 
-logger = logging.getLogger(__name__)
 
 click_methods = {
     "random": get_next_click3D_torch_2,
@@ -101,7 +100,7 @@ class BaseTrainer:
             last_ckpt = torch.load(ckp_path, map_location=self.args.device)
         if last_ckpt:
             self.model.load_state_dict(last_ckpt["model_state_dict"])
-            print(f"SAM-Med3D size: {sum(p.numel() for p in self.model.parameters())}")
+            logger.info(f"SAM-Med3D size: {sum(p.numel() for p in self.model.parameters())}", colour="white")
             if not self.args.resume:
                 self.start_epoch = 0
             else:
@@ -112,10 +111,10 @@ class BaseTrainer:
                 self.dices = last_ckpt["dices"]
                 self.best_loss = last_ckpt["best_loss"]
                 self.best_dice = last_ckpt["best_dice"]
-            print(f"Loaded checkpoint from {ckp_path} (epoch {self.start_epoch})")
+            logger.info(f"Loaded checkpoint from {ckp_path} (epoch {self.start_epoch})")
         else:
             self.start_epoch = 0
-            print(f"No checkpoint found at {ckp_path}, start training from scratch")
+            logger.warning(f"No checkpoint found at {ckp_path}, start training from scratch")
 
     def save_checkpoint(self, epoch, state_dict, describe="last"):
         torch.save(
@@ -246,7 +245,7 @@ class BaseTrainer:
         self.optimizer.zero_grad()
         step_loss = 0
 
-        tbar = tqdm(self.train_dataloader, desc="training", leave=False, color="green")
+        tbar = tqdm(self.train_dataloader, desc=f"epoch: {epoch}/{self.args.num_epochs - 1}", leave=False, colour="green")
         for step, (image3D, gt3D) in enumerate(tbar):
             image3D = image3D.to(self.args.device)
             gt3D = gt3D.to(self.args.device).type(torch.long)
@@ -275,17 +274,15 @@ class BaseTrainer:
                 print_dice = self.get_dice_score(prev_masks, gt3D)
                 epoch_dice += print_dice  # Accumulate dice scores for the entire epoch
 
-                logger.info(
-                    f"Epoch: {epoch}, Step: {step}, Loss: {print_loss}, Dice: {print_dice}"
-                )
                 if print_dice > self.step_best_dice:
                     self.step_best_dice = print_dice
-                    if print_dice > 0.6:
+                    if print_dice > 0.8:
                         self.save_checkpoint(
                             epoch,
                             sam_model.state_dict(),
                             describe=f"{epoch}_step_dice:{print_dice}_best",
                         )
+                        logger.info(f"saving checkpoint at step: {step} with dice score: {round(print_dice, 3)},")
                 if print_loss < self.step_best_loss:
                     self.step_best_loss = print_loss
             else:
@@ -302,9 +299,9 @@ class BaseTrainer:
         self.model.eval()
         sam_model = self.model
 
-        tbar = tqdm(self.val_dataloader, desc="training", leave=False, color="cyan")
+        tbar = tqdm(self.val_dataloader, desc="validation", leave=False, colour="cyan")
         with torch.no_grad():
-            for step, (val_image3D, val_gt3D) in enumerate(tbar):
+            for step, (val_image3D, val_gt3D, _) in enumerate(tbar):
                 val_image3D = val_image3D.to(self.args.device)
                 val_gt3D = val_gt3D.to(self.args.device).type(torch.long)
 
@@ -321,10 +318,6 @@ class BaseTrainer:
                 val_dice = self.get_dice_score(val_prev_masks, val_gt3D)
                 epoch_dice += val_dice  # Accumulate dice scores for the entire epoch
 
-                logger.info(
-                    f"Validation - Epoch: {epoch}, Step: {step}, Loss: {val_loss.item()}, Dice: {val_dice}"
-                )
-
         epoch_loss /= len(self.val_dataloader)
         epoch_dice /= len(self.val_dataloader)
 
@@ -340,8 +333,6 @@ class BaseTrainer:
 
     def train(self):
         for epoch in range(self.start_epoch, self.args.num_epochs):
-            print(f"Epoch: {epoch}/{self.args.num_epochs - 1}")
-
             epoch_loss, epoch_iou, epoch_dice = self.train_epoch(
                 epoch, num_clicks=10
             )
@@ -351,7 +342,7 @@ class BaseTrainer:
 
             self.losses.append(epoch_loss)
             self.dices.append(epoch_dice)
-            logger.info(f"Epoch\t {epoch}\t : loss: {epoch_loss}, dice: {epoch_dice}")
+            logger.info(f"Epoch: {epoch} | Loss: {round(epoch_loss, 3)} | Dice: {round(epoch_dice, 3)}", colour="yellow")
 
             state_dict = self.model.state_dict()
 
@@ -376,7 +367,7 @@ class BaseTrainer:
                 val_loss, val_dice = self.eval_epoch(epoch, num_clicks=10)
                 self.val_losses.append(val_loss)
                 self.val_dices.append(val_dice)
-                logger.info(f"Validation - Epoch: {epoch}, Loss: {val_loss}, Dice: {val_dice}")
+                logger.info(f"Validation Epoch: {epoch} | Loss: {round(val_loss, 3)} | Dice: {round(val_dice, 3)}", colour="magenta")
 
                 # save validation loss best checkpoint
                 if val_loss < self.best_val_loss:
@@ -391,23 +382,17 @@ class BaseTrainer:
                 self.plot_result(self.val_losses, "Dice + Cross Entropy Loss", "val_loss")
                 self.plot_result(self.val_dices, "Dice Score", "val_dice")
 
-        logger.info(
-            "====================================================================="
-        )
-        logger.info(f"Best loss: {self.best_loss}")
-        logger.info(f"Best dice: {self.best_dice}")
-        logger.info(f"Best validation loss: {self.best_val_loss}")
-        logger.info(f"Best validation dice: {self.best_val_dice}")
+        logger.info(60*"=")
+        logger.info(f"Best loss: {round(self.best_loss, 3)}")
+        logger.info(f"Best dice: {round(self.best_dice, 3)}")
+        logger.info(f"Best validation loss: {round(self.best_val_loss, 3)}")
+        logger.info(f"Best validation dice: {round(self.best_val_dice, 3)}")
         logger.info(f"Total loss: {self.losses}")
         logger.info(f"Total dice: {self.dices}")
-        logger.info(
-            "====================================================================="
-        )
+        logger.info(60*"-")
         logger.info(f"args : {self.args}")
         logger.info(f"Used datasets : {img_datas}")
-        logger.info(
-            "====================================================================="
-        )
+        logger.info(60*"=")
 
 
 def main():
@@ -444,8 +429,8 @@ def main():
 
     args = parser.parse_args()
 
-    args.device = "cuda:1"
-    print(f"on device: {args.device}")
+    args.device = "cuda:0"
+    logger.info(f"on device: {args.device}", colour="white")
 
     args.model_save_path = os.path.join(args.work_dir, args.task_name)
     os.makedirs(args.model_save_path, exist_ok=True)
