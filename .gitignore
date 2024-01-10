@@ -8,6 +8,8 @@ visualization/
 nbs/
 debug.py
 debug.ipynb
+*.pt
+*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
