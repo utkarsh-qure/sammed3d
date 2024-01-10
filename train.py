@@ -136,11 +136,11 @@ class BaseTrainer:
         )
 
     def batch_forward(
-        self, sam_model, image_embedding, gt3D, low_res_masks, points=None
+        self, sam_model, image_embedding, gt3D, low_res_masks, points=None, boxes=None
     ):
         sparse_embeddings, dense_embeddings = sam_model.prompt_encoder(
             points=points,
-            boxes=None,
+            boxes=boxes,
             masks=low_res_masks,
         )
         low_res_masks, iou_predictions = sam_model.mask_decoder(
@@ -177,6 +177,19 @@ class BaseTrainer:
             labels_input = points_la
         return points_input, labels_input
 
+    def get_boxes(self, prev_masks):
+        if not prev_masks.sum().item(): return None
+        prev_masks_ = prev_masks > 0.5 # thresholding
+        boxes = []
+        for batch_idx in range(prev_masks_.shape[0]):
+            mask = prev_masks_[batch_idx][0] # get mask for this batch_idx
+            ind = torch.stack(torch.where(mask)) # find indices with val=1(nodule indices)
+            if not ind.sum().item(): return None # if no such indices, no boxes, return None
+            mins = ind.min(axis=1).values
+            maxs = ind.max(axis=1).values
+            boxes.append(torch.cat([mins, maxs], axis=0).unsqueeze(0))
+        return torch.cat(boxes)
+
     def interaction(self, sam_model, image_embedding, gt3D, num_clicks):
         return_loss = 0
         # initialise mask before first click
@@ -193,7 +206,9 @@ class BaseTrainer:
 
         random_insert = np.random.randint(2, 9)
         for click_idx in range(num_clicks):
+            # breakpoint()
             points_input, labels_input = self.get_points(prev_masks, gt3D)
+            boxes = self.get_boxes(prev_masks)
 
             ## uncomment for (32, 128, 128) image
             # low_res_masks = F.interpolate(low_res_masks, size=(low_res_masks.shape[2]//4, low_res_masks.shape[3], low_res_masks.shape[4])) # low_res_mask along z dim should be 1/4th of other 2 dims, based on img size
@@ -201,7 +216,7 @@ class BaseTrainer:
 
             if click_idx == random_insert or click_idx == num_clicks - 1:
                 low_res_masks, prev_masks = self.batch_forward(
-                    sam_model, image_embedding, gt3D, low_res_masks, points=None
+                    sam_model, image_embedding, gt3D, low_res_masks, points=None, boxes=None
                 )
             else:
                 low_res_masks, prev_masks = self.batch_forward(
@@ -210,6 +225,7 @@ class BaseTrainer:
                     gt3D,
                     low_res_masks,
                     points=[points_input, labels_input],
+                    boxes=boxes,
                 )
             loss = self.seg_loss(prev_masks, gt3D)
             return_loss += loss
@@ -399,7 +415,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--task_name", type=str, default="dsb_union_2reader_ft_turbo"
-    )  # last: dsb_union_2reader_ft_turbo
+    )  # last: dsb_union_2reader_ft_turbo_val
     parser.add_argument("--click_type", type=str, default="random")
     parser.add_argument("--multi_click", action="store_true", default=False)
     parser.add_argument("--model_type", type=str, default="vit_b_ori")
@@ -415,6 +431,8 @@ def main():
     # train
     parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--resume", action="store_true", default=False)
+    parser.add_argument("--train_from_scratch", action="store_true", default=False) # has to be set True for any img not of the shape (128, 128, 128)
+    parser.add_argument("--use_bbox_prompts", action="store_true", default=False) # if this is True, train_from_scratch must also be True
 
     # lr_scheduler
     parser.add_argument("--lr_scheduler", type=str, default="multisteplr")
@@ -429,15 +447,15 @@ def main():
 
     args = parser.parse_args()
 
-    args.device = "cuda:0"
-    logger.info(f"on device: {args.device}", colour="white")
+    args.device = "cuda:2"
+    logger.info(f"on device: {args.device}")
+
+    if args.use_bbox_prompts and not args.train_from_scratch:
+        logger.warning("have to train the model from scratch if you want to use bbox prompts")
+        args.train_from_scratch = True
 
     args.model_save_path = os.path.join(args.work_dir, args.task_name)
     os.makedirs(args.model_save_path, exist_ok=True)
-
-    args.train_from_scratch = (
-        False  # train_from_scratch is True for any img not of the shape (128, 128, 128)
-    )
 
     random.seed(2023)
     np.random.seed(2023)
