@@ -1,6 +1,7 @@
 img_datas = [
     # "/cache/fast_data_nas8/utkarsh/sam_med3d_cache/lidc",
-    "/cache/fast_data_nas8/utkarsh/segm_cache/sam/dsb",
+    # "/cache/fast_data_nas8/utkarsh/segm_cache/sam/dsb",
+    "/fast_data_2d_1/utkarsh/segm_cache/sam/dsb", # e2e
 ]
 
 # img_datas = [
