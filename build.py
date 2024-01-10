@@ -21,19 +21,30 @@ def build_model(args):
 
 
 def get_dataloaders(args):
+    train_val_transforms = tio.Compose(
+        [
+            tio.ToCanonical(),
+            # tio.Resample((1, 1, 1)),
+            tio.CropOrPad(
+                mask_name="label",
+                target_shape=(args.img_size, args.img_size, args.img_size),
+            ),  # crop only object region
+            tio.RandomFlip(axes=(0, 1, 2)),
+        ]
+    )
     train_dataset = Dataset_Union_ALL(
         paths=img_datas,
-        transform=tio.Compose(
-            [
-                tio.ToCanonical(),
-                # tio.Resample((1, 1, 1)),
-                tio.CropOrPad(
-                    mask_name="label",
-                    target_shape=(args.img_size, args.img_size, args.img_size),
-                ),  # crop only object region
-                tio.RandomFlip(axes=(0, 1, 2)),
-            ]
-        ),
+        mode="train",
+        data_type="Tr",
+        transform=train_val_transforms,
+        threshold=100,
+    )
+
+    val_dataset = Dataset_Union_ALL(
+        paths=img_datas,
+        mode="test",
+        data_type="Val",
+        transform=train_val_transforms,
         threshold=100,
     )
 
@@ -46,7 +57,17 @@ def get_dataloaders(args):
         num_workers=args.num_workers,
         pin_memory=True,
     )
-    return train_dataloader
+
+    val_dataloader = Union_Dataloader(
+        dataset=val_dataset,
+        sampler=None,
+        batch_size=args.batch_size//2,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+
+    return train_dataloader, val_dataloader
 
 
 def get_dataloaders_32(args):
@@ -97,7 +118,7 @@ def get_test_dataloader(args):
 
     test_dataset = Dataset_Union_ALL(
         paths=all_dataset_paths,
-        mode="Ts",
+        mode="test",
         data_type=args.data_type,
         transform=tio.Compose(infer_transform),
         threshold=0,

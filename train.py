@@ -23,17 +23,22 @@ click_methods = {
 
 
 class BaseTrainer:
-    def __init__(self, model, dataloaders, args):
+    def __init__(self, model, train_dataloader, val_dataloader, args):
         self.model = model
-        self.dataloaders = dataloaders
+        self.train_dataloader = train_dataloader
+        self.val_dataloader = val_dataloader
         self.args = args
         self.best_loss = np.inf
         self.best_dice = 0.0
+        self.best_val_loss = np.inf
+        self.best_val_dice = 0.0
         self.step_best_loss = np.inf
         self.step_best_dice = 0.0
         self.losses = []
         self.dices = []
         self.ious = []
+        self.val_losses = []
+        self.val_dices = []
         self.set_loss_fn()
         self.set_optimizer()
         self.set_lr_scheduler()
@@ -123,6 +128,8 @@ class BaseTrainer:
                 "dices": self.dices,
                 "best_loss": self.best_loss,
                 "best_dice": self.best_dice,
+                "best_val_loss": self.best_val_loss,
+                "best_val_dice": self.best_val_dice,
                 "args": self.args,
                 "used_datas": img_datas,
             },
@@ -186,14 +193,14 @@ class BaseTrainer:
         )
 
         random_insert = np.random.randint(2, 9)
-        for num_click in range(num_clicks):
+        for click_idx in range(num_clicks):
             points_input, labels_input = self.get_points(prev_masks, gt3D)
 
             ## uncomment for (32, 128, 128) image
             # low_res_masks = F.interpolate(low_res_masks, size=(low_res_masks.shape[2]//4, low_res_masks.shape[3], low_res_masks.shape[4])) # low_res_mask along z dim should be 1/4th of other 2 dims, based on img size
             # breakpoint()
 
-            if num_click == random_insert or num_click == num_clicks - 1:
+            if click_idx == random_insert or click_idx == num_clicks - 1:
                 low_res_masks, prev_masks = self.batch_forward(
                     sam_model, image_embedding, gt3D, low_res_masks, points=None
                 )
@@ -229,7 +236,7 @@ class BaseTrainer:
             dice_list.append(compute_dice(pred_masks[i], true_masks[i]))
         return (sum(dice_list) / len(dice_list)).item()
 
-    def train_epoch_simple(self, epoch, num_clicks):
+    def train_epoch(self, epoch, num_clicks):
         epoch_loss = 0
         epoch_iou = 0
         epoch_dice = 0
@@ -239,7 +246,7 @@ class BaseTrainer:
         self.optimizer.zero_grad()
         step_loss = 0
 
-        tbar = tqdm(self.dataloaders)
+        tbar = tqdm(self.train_dataloader, desc="training", leave=False, color="green")
         for step, (image3D, gt3D) in enumerate(tbar):
             image3D = image3D.to(self.args.device)
             gt3D = gt3D.to(self.args.device).type(torch.long)
@@ -290,8 +297,39 @@ class BaseTrainer:
         return epoch_loss, epoch_iou, epoch_dice
 
     def eval_epoch(self, epoch, num_clicks):
-        return 0
+        epoch_loss = 0
+        epoch_dice = 0
+        self.model.eval()
+        sam_model = self.model
 
+        tbar = tqdm(self.val_dataloader, desc="training", leave=False, color="cyan")
+        with torch.no_grad():
+            for step, (val_image3D, val_gt3D) in enumerate(tbar):
+                val_image3D = val_image3D.to(self.args.device)
+                val_gt3D = val_gt3D.to(self.args.device).type(torch.long)
+
+                val_image_embedding = sam_model.image_encoder(val_image3D)
+
+                self.click_points = []
+                self.click_labels = []
+
+                val_prev_masks, val_loss = self.interaction(
+                    sam_model, val_image_embedding, val_gt3D, num_clicks=num_clicks
+                )
+
+                epoch_loss += val_loss.item()
+                val_dice = self.get_dice_score(val_prev_masks, val_gt3D)
+                epoch_dice += val_dice  # Accumulate dice scores for the entire epoch
+
+                logger.info(
+                    f"Validation - Epoch: {epoch}, Step: {step}, Loss: {val_loss.item()}, Dice: {val_dice}"
+                )
+
+        epoch_loss /= len(self.val_dataloader)
+        epoch_dice /= len(self.val_dataloader)
+
+        return epoch_loss, epoch_dice
+    
     def plot_result(self, plot_data, description, save_name):
         plt.plot(plot_data)
         plt.title(description)
@@ -304,9 +342,8 @@ class BaseTrainer:
         for epoch in range(self.start_epoch, self.args.num_epochs):
             print(f"Epoch: {epoch}/{self.args.num_epochs - 1}")
 
-            # num_clicks = np.random.randint(1, 21)
-            epoch_loss, epoch_iou, epoch_dice = self.train_epoch_simple(
-                epoch, num_clicks=11
+            epoch_loss, epoch_iou, epoch_dice = self.train_epoch(
+                epoch, num_clicks=10
             )
 
             if self.lr_scheduler is not None:
@@ -314,8 +351,6 @@ class BaseTrainer:
 
             self.losses.append(epoch_loss)
             self.dices.append(epoch_dice)
-            print(f"EPOCH: {epoch}, Loss: {epoch_loss}")
-            print(f"EPOCH: {epoch}, Dice: {epoch_dice}")
             logger.info(f"Epoch\t {epoch}\t : loss: {epoch_loss}, dice: {epoch_dice}")
 
             state_dict = self.model.state_dict()
@@ -333,14 +368,36 @@ class BaseTrainer:
                 self.best_dice = epoch_dice
                 self.save_checkpoint(epoch, state_dict, describe="dice_best")
 
-            self.plot_result(self.losses, "Dice + Cross Entropy Loss", "Loss")
-            self.plot_result(self.dices, "Dice", "Dice")
+            self.plot_result(self.losses, "Dice + Cross Entropy Loss", "train_loss")
+            self.plot_result(self.dices, "Dice Score", "train_dice")
+
+            # Evaluation; every 5 epochs
+            if epoch%5 == 0:
+                val_loss, val_dice = self.eval_epoch(epoch, num_clicks=10)
+                self.val_losses.append(val_loss)
+                self.val_dices.append(val_dice)
+                logger.info(f"Validation - Epoch: {epoch}, Loss: {val_loss}, Dice: {val_dice}")
+
+                # save validation loss best checkpoint
+                if val_loss < self.best_val_loss:
+                    self.best_val_loss = val_loss
+                    self.save_checkpoint(epoch, state_dict, describe="val_loss_best")
+
+                # save validation dice best checkpoint
+                if val_dice > self.best_val_dice:
+                    self.best_val_dice = val_dice
+                    self.save_checkpoint(epoch, state_dict, describe="val_dice_best")
+
+                self.plot_result(self.val_losses, "Dice + Cross Entropy Loss", "val_loss")
+                self.plot_result(self.val_dices, "Dice Score", "val_dice")
 
         logger.info(
             "====================================================================="
         )
         logger.info(f"Best loss: {self.best_loss}")
         logger.info(f"Best dice: {self.best_dice}")
+        logger.info(f"Best validation loss: {self.best_val_loss}")
+        logger.info(f"Best validation dice: {self.best_val_dice}")
         logger.info(f"Total loss: {self.losses}")
         logger.info(f"Total dice: {self.dices}")
         logger.info(
@@ -387,7 +444,7 @@ def main():
 
     args = parser.parse_args()
 
-    args.device = "cuda:0"
+    args.device = "cuda:1"
     print(f"on device: {args.device}")
 
     args.model_save_path = os.path.join(args.work_dir, args.task_name)
@@ -400,10 +457,10 @@ def main():
     random.seed(2023)
     np.random.seed(2023)
     torch.manual_seed(2023)
-    dataloaders = get_dataloaders(args)
+    train_dataloader, val_dataloader = get_dataloaders(args)
     # dataloaders = get_dataloaders_32(args)
     model = build_model(args)
-    trainer = BaseTrainer(model, dataloaders, args)
+    trainer = BaseTrainer(model, train_dataloader, val_dataloader, args)
     trainer.train()
 
 
