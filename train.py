@@ -16,6 +16,9 @@ from build import get_dataloaders, build_model
 from utils.click_method import get_next_click3D_torch_2
 
 
+MODE = "debug" # or "train"; reset a few args, sane defaults for debug mode
+
+
 click_methods = {
     "random": get_next_click3D_torch_2,
 }
@@ -208,7 +211,8 @@ class BaseTrainer:
         for click_idx in range(num_clicks):
             # breakpoint()
             points_input, labels_input = self.get_points(prev_masks, gt3D)
-            boxes = self.get_boxes(prev_masks)
+            boxes = None
+            # boxes = self.get_boxes(prev_masks)
 
             ## uncomment for (32, 128, 128) image
             # low_res_masks = F.interpolate(low_res_masks, size=(low_res_masks.shape[2]//4, low_res_masks.shape[3], low_res_masks.shape[4])) # low_res_mask along z dim should be 1/4th of other 2 dims, based on img size
@@ -414,7 +418,7 @@ class BaseTrainer:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--task_name", type=str, default="dsb_union_2reader_ft_turbo"
+        "--task_name", type=str, default="dsb_union_2reader_ft_turbo_val"
     )  # last: dsb_union_2reader_ft_turbo_val
     parser.add_argument("--click_type", type=str, default="random")
     parser.add_argument("--multi_click", action="store_true", default=False)
@@ -446,8 +450,19 @@ def main():
     parser.add_argument("--weight_decay", type=float, default=0.1)
 
     args = parser.parse_args()
+    args.device = "cuda:0"
 
-    args.device = "cuda:2"
+    if MODE == "debug":
+        args.task_name = "debug_new"
+        args.device = "cuda:1"
+        args.work_dir = "./"
+        args.num_workers = 2
+        args.batch_size = 2
+        args.num_epochs = 10
+        args.accumulation_steps = 2
+        args.model_type = "vit_b_custom"
+        logger.info("running in DEBUG mode, set sane args")
+
     logger.info(f"on device: {args.device}")
 
     if args.use_bbox_prompts and not args.train_from_scratch:
@@ -461,7 +476,6 @@ def main():
     np.random.seed(2023)
     torch.manual_seed(2023)
     train_dataloader, val_dataloader = get_dataloaders(args)
-    # dataloaders = get_dataloaders_32(args)
     model = build_model(args)
     trainer = BaseTrainer(model, train_dataloader, val_dataloader, args)
     trainer.train()
