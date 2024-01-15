@@ -70,35 +70,6 @@ def get_dataloaders(args):
     return train_dataloader, val_dataloader
 
 
-def get_dataloaders_32(args):
-    train_dataset = Dataset_Union_ALL(
-        paths=img_datas,
-        transform=tio.Compose(
-            [
-                tio.ToCanonical(),
-                # tio.Resample((1, 1, 1)),
-                tio.CropOrPad(
-                    mask_name="label",
-                    target_shape=(args.img_size // 4, args.img_size, args.img_size),
-                ),  # crop only object region
-                tio.RandomFlip(axes=(0, 1, 2)),
-            ]
-        ),
-        threshold=100,
-    )
-
-    # normal pytorch DataLoader with prefetch_generator:BackgroundGenerator
-    train_dataloader = Union_Dataloader(
-        dataset=train_dataset,
-        sampler=None,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.num_workers,
-        pin_memory=True,
-    )
-    return train_dataloader
-
-
 def get_test_dataloader(args):
     # all_dataset_paths = glob(args.test_data_path)
     all_dataset_paths = glob(os.path.join(args.test_data_path, "*"))

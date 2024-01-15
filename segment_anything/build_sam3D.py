@@ -12,10 +12,7 @@ from .modeling import (
     ImageEncoderViT3D,
     MaskDecoder3D,
     PromptEncoder3D,
-    Sam3D,
-    ImageEncoderViT3D_mod,
-    Sam3D_mod,
-    PromptEncoder3D_mod,
+    Sam3D
 )
 
 
@@ -55,26 +52,6 @@ def build_sam3D_vit_b(checkpoint=None):
 
 def build_sam3D_vit_b_ori(checkpoint=None):
     return _build_sam3D_ori(
-        encoder_embed_dim=768,
-        encoder_depth=12,
-        encoder_num_heads=12,
-        encoder_global_attn_indexes=[2, 5, 8, 11],
-        checkpoint=checkpoint,
-    )
-
-
-def build_sam3D_vit_b_96(checkpoint=None):
-    return _build_sam3D_96(
-        encoder_embed_dim=768,
-        encoder_depth=12,
-        encoder_num_heads=12,
-        encoder_global_attn_indexes=[2, 5, 8, 11],
-        checkpoint=checkpoint,
-    )
-
-
-def build_sam3D_vit_b_32(checkpoint=None):
-    return _build_sam3D_32_128_128(
         encoder_embed_dim=768,
         encoder_depth=12,
         encoder_num_heads=12,
@@ -189,17 +166,30 @@ def _build_sam3D_ori(
     return sam
 
 
-def _build_sam3D_96(
+# by LBK EDIT
+def build_sam3D_vit_b_custom(checkpoint=None, custom_img_size=(32, 128, 128)):
+    return _build_sam3D_custom(
+        encoder_embed_dim=768,
+        encoder_depth=12,
+        encoder_num_heads=12,
+        encoder_global_attn_indexes=[2, 5, 8, 11],
+        checkpoint=checkpoint,
+        custom_img_size=custom_img_size, # by LBK EDIT
+    )
+
+
+# by LBK EDIT
+def _build_sam3D_custom(
     encoder_embed_dim,
     encoder_depth,
     encoder_num_heads,
     encoder_global_attn_indexes,
     checkpoint=None,
+    custom_img_size=(32, 128, 128), # by LBK EDIT
 ):
     prompt_embed_dim = 384
-    image_size = 96
+    image_size = 128
     vit_patch_size = 16
-    image_embedding_size = image_size // vit_patch_size
     sam = Sam3D(
         image_encoder=ImageEncoderViT3D(
             depth=encoder_depth,
@@ -217,68 +207,9 @@ def _build_sam3D_96(
         ),
         prompt_encoder=PromptEncoder3D(
             embed_dim=prompt_embed_dim,
-            image_embedding_size=(
-                image_embedding_size,
-                image_embedding_size,
-                image_embedding_size,
-            ),
-            input_image_size=(image_size, image_size, image_size),
-            mask_in_chans=16,
-        ),
-        mask_decoder=MaskDecoder3D(
-            num_multimask_outputs=3,
-            transformer_dim=prompt_embed_dim,
-            iou_head_depth=3,
-            iou_head_hidden_dim=256,
-        ),
-        pixel_mean=[123.675, 116.28, 103.53],
-        pixel_std=[58.395, 57.12, 57.375],
-    )
-    sam.eval()
-    if checkpoint is not None:
-        with open(checkpoint, "rb") as f:
-            state_dict = torch.load(f)
-        sam.load_state_dict(state_dict)
-    return sam
-
-
-def _build_sam3D_32_128_128(
-    encoder_embed_dim,
-    encoder_depth,
-    encoder_num_heads,
-    encoder_global_attn_indexes,
-    checkpoint=None,
-):
-    prompt_embed_dim = 384
-    image_size = 128
-    print(30 * "=")
-    print(f"loading sam3D for input size {(image_size//4, image_size, image_size)}")
-    print(30 * "=")
-    vit_patch_size = 16
-    image_embedding_size = image_size // vit_patch_size
-    sam = Sam3D_mod(
-        image_encoder=ImageEncoderViT3D_mod(
-            depth=encoder_depth,
-            embed_dim=encoder_embed_dim,
-            img_size=image_size,
-            mlp_ratio=4,
-            norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
-            num_heads=encoder_num_heads,
-            patch_size=vit_patch_size,
-            qkv_bias=True,
-            use_rel_pos=True,
-            global_attn_indexes=encoder_global_attn_indexes,
-            window_size=14,
-            out_chans=prompt_embed_dim,
-        ),
-        prompt_encoder=PromptEncoder3D_mod(
-            embed_dim=prompt_embed_dim,
-            image_embedding_size=(
-                image_embedding_size,
-                image_embedding_size,
-                image_embedding_size,
-            ),
-            input_image_size=(image_size // 4, image_size, image_size),
+            # LBK (Important)
+            image_embedding_size=(custom_img_size[0]//vit_patch_size, custom_img_size[1]//vit_patch_size, custom_img_size[2]//vit_patch_size),
+            input_image_size=custom_img_size,
             mask_in_chans=16,
         ),
         mask_decoder=MaskDecoder3D(
@@ -304,6 +235,5 @@ sam_model_registry3D = {
     "vit_l": build_sam3D_vit_l,
     "vit_b": build_sam3D_vit_b,
     "vit_b_ori": build_sam3D_vit_b_ori,
-    "vit_b_96": build_sam3D_vit_b_96,
-    "vit_b_32slices": build_sam3D_vit_b_32,
+    "vit_b_custom": build_sam3D_vit_b_custom
 }

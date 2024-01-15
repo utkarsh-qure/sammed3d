@@ -117,6 +117,21 @@ class MaskDecoder3D(nn.Module):
 
         # Prepare output
         return masks, iou_pred
+    
+    # by LBK EDIT
+    @staticmethod
+    def interpolate(x, d, h, w):
+        depth, height, width = x.shape[2:]
+
+        # we add a small number to avoid floating point error in the interpolation
+        # see discussion at https://github.com/facebookresearch/dino/issues/8
+        d0, h0, w0 = d+0.1, h+0.1, w+0.1
+        x = nn.functional.interpolate(
+            x,
+            scale_factor=(d0/depth, h0/height, w0/width),
+            mode='trilinear',
+        )
+        return x
 
     def predict_masks(
         self,
@@ -140,16 +155,36 @@ class MaskDecoder3D(nn.Module):
             src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
         else:
             src = image_embeddings
-        src = src + dense_prompt_embeddings
+        
+
+        # # 1. original
+        # src = src + dense_prompt_embeddings
+        
+        # 2. LBK
+        try:
+            src = src + dense_prompt_embeddings
+        except:
+            src = src + self.interpolate(dense_prompt_embeddings, *src.shape[2:])
+        
+
         if image_pe.shape[0] != tokens.shape[0]:
             pos_src = torch.repeat_interleave(image_pe, tokens.shape[0], dim=0)
         else:
             pos_src = image_pe
         b, c, x, y, z = src.shape
 
+
         # Run the transformer
-        # import IPython; IPython.embed()
-        hs, src = self.transformer(src, pos_src, tokens)
+        # # 1. original
+        # hs, src = self.transformer(src, pos_src, tokens)
+
+        # 2. LBK
+        try:
+            hs, src = self.transformer(src, pos_src, tokens)
+        except:
+            hs, src = self.transformer(src, self.interpolate(pos_src, *src.shape[2:]), tokens)
+        
+        
         iou_token_out = hs[:, 0, :]
         mask_tokens_out = hs[:, 1 : (1 + self.num_mask_tokens), :]
 
